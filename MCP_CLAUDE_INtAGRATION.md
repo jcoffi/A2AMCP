@@ -70,8 +70,8 @@ BEFORE doing anything else, you MUST:
 
 THROUGHOUT your work, you MUST:
 - Send heartbeat every 30 seconds: heartbeat("{project_id}", "{session_name}")
-- Check messages every few steps: check_messages("{project_id}", "{session_name}")
-- Before modifying ANY file: announce_file_change("{project_id}", "{session_name}", "filepath", "change_type", "description")
+- Check messages every few steps: `result = check_messages("{project_id}", "{session_name}")` then iterate `result["data"]["messages"]`
+- Before modifying ANY file: announce_file_change("{project_id}", "{session_name}", "filepath", "operation")
 - After modifying: release_file_lock("{project_id}", "{session_name}", "filepath")
 
 CREATE YOUR TODO LIST:
@@ -82,8 +82,11 @@ After registering, break down your task into todos:
 
 COORDINATE WITH OTHERS:
 - See who's active: list_active_agents("{project_id}")
-- Check their progress: get_all_todos("{project_id}")
-- Ask questions: query_agent("{project_id}", "{session_name}", "target", "type", "question")
+- Check a specific agent's progress with the raw Redis MCP server: get_my_todos("{project_id}", "target_session")
+- Ask questions: `query_agent(project_id="{project_id}", from_session="{session_name}", to_session="target", query_type="type", query="question")`
+- When replying, use: `respond_to_query(project_id="{project_id}", from_session="{session_name}", to_session=msg["from"], message_id=msg["id"], response="answer")`
+
+Communication tool results are wrapped as `{ "status": ..., "message": ..., "data": ... }`.
 
 If you cannot access these tools, STOP and report that MCP tools are not available.
 """

@@ -169,8 +169,22 @@ await agent.communication.broadcast(
     "User model updated with new fields"
 )
 
-# Check messages
+# Note: this helper expects a server implementation that exposes
+# `broadcast_message`. The current Redis MCP server may not provide it.
+
+# Check messages (SDK helper unwraps MCP data.messages for you)
 messages = await agent.communication.check_messages()
+
+# Respond to a query message
+await agent.communication.respond(
+    to_session=messages[0]["from"],
+    message_id=messages[0]["id"],
+    response="User has id, email, password, role, and timestamps"
+)
+
+# Likewise, higher-level helpers for cross-agent todo aggregation may depend on
+# tools not exposed by the raw Redis MCP server. Raw MCP callers should prefer
+# list_active_agents(...) + get_my_todos(...).
 ```
 
 ### Shared Interfaces

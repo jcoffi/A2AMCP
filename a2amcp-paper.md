@@ -128,11 +128,17 @@ add_todo("ecommerce-v2", "task-auth-001", "Implement JWT tokens", 1)
 list_active_agents("ecommerce-v2")
 # Sees auth agent is active
 
-get_all_todos("ecommerce-v2") 
-# Sees auth agent is creating User model
+list_active_agents("ecommerce-v2")
+# Sees auth agent is active, then inspects that agent with get_my_todos(...)
 
 # Waits for User model, then queries
-query_agent("ecommerce-v2", "task-profile-002", "task-auth-001", "interface", "What fields does User have?")
+query_agent(
+    project_id="ecommerce-v2",
+    from_session="task-profile-002",
+    to_session="task-auth-001",
+    query_type="interface",
+    query="What fields does User have?"
+)
 ```
 
 **Agent 1** shares its interface:

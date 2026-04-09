@@ -278,42 +278,16 @@ Gets all todos for the current agent.
 
 #### `get_all_todos`
 
-Gets todos for all agents in the project. Useful for coordination.
+`get_all_todos` is useful conceptually for coordination, but it is **not currently exposed by the Redis MCP server** in `mcp-server-redis.py`.
 
-**Parameters:**
-- `project_id` (str): Project identifier
+For raw MCP callers using the current Redis server, use this pattern instead:
 
-**Returns:**
-```json
-{
-  "task-auth-001": {
-    "task_id": "001",
-    "description": "Implement user authentication",
-    "total_todos": 5,
-    "completed": 2,
-    "todos": [...]
-  },
-  "task-profile-002": {
-    "task_id": "002",
-    "description": "Create user profiles",
-    "total_todos": 4,
-    "completed": 1,
-    "todos": [...]
-  }
-}
-```
-
-**Example:**
 ```python
-# Check what everyone is working on
-all_todos = get_all_todos("ecommerce-v2")
-for agent, info in all_todos.items():
-    print(f"{agent}: {info['completed']}/{info['total_todos']} completed")
-    
-    # Find specific todos
-    for todo in info['todos']:
-        if 'User model' in todo['text']:
-            print(f"  Found relevant todo: {todo['text']} - {todo['status']}")
+agents_result = list_active_agents("ecommerce-v2")
+for agent in agents_result["data"]["agents"]:
+    todos_result = get_my_todos("ecommerce-v2", agent["session_name"])
+    todos = todos_result["data"]["todos"]
+    print(agent["session_name"], len(todos))
 ```
 
 ### Communication
@@ -325,46 +299,60 @@ Sends a query to another agent and optionally waits for a response.
 **Parameters:**
 - `project_id` (str): Project identifier
 - `from_session` (str): Your session name
+- `session_name` (str): Legacy alias for `from_session`
 - `to_session` (str): Target agent's session name
-- `query_type` (str): Type of query (e.g., "interface", "help", "status")
+- `target_session` (str): Legacy alias for `to_session`
+- `query_type` (str): Type of query (e.g., "interface", "help", "status"). Defaults to `query`
 - `query` (str): The actual question
-- `wait_for_response` (bool): Whether to wait for response (default: True)
+- `wait_for_response` (bool): Whether to wait for response (default: False)
 - `timeout` (int): Seconds to wait for response (default: 30)
 
-**Returns (if waiting):**
+**Returns:**
 ```json
 {
-  "status": "received",
-  "response": "The User interface has id, email, password, and role fields"
+  "status": "success",
+  "message": "Response received from task-auth-001",
+  "data": {
+    "status": "received",
+    "query_id": "query_1711638123456",
+    "response": "The User interface has id, email, password, and role fields",
+    "response_data": {
+      "id": "response_query_1711638123456",
+      "from": "task-auth-001",
+      "to": "task-profile-002",
+      "type": "response",
+      "response": "The User interface has id, email, password, and role fields",
+      "content": "The User interface has id, email, password, and role fields",
+      "query_id": "query_1711638123456",
+      "in_response_to": "query_1711638123456",
+      "timestamp": "2024-01-15T10:31:00Z"
+    }
+  }
 }
 ```
 
-**Returns (if not waiting):**
-```json
-{
-  "status": "sent",
-  "message_id": "task-auth-001-1705320600.789"
-}
-```
+If `wait_for_response=False`, the tool still returns the same MCP wrapper, but `data.status` is `sent` and `data.query_id` is the correlation field.
 
 **Example:**
 ```python
 # Ask about an interface
 response = query_agent(
-    "ecommerce-v2",
-    "task-profile-002",
-    "task-auth-001",
-    "interface",
-    "What fields does the User interface have? I need to extend it for profiles."
+    project_id="ecommerce-v2",
+    from_session="task-profile-002",
+    to_session="task-auth-001",
+    query_type="interface",
+    query="What fields does the User interface have? I need to extend it for profiles.",
+    wait_for_response=True
 )
 
 # Ask for help
 response = query_agent(
-    "ecommerce-v2",
-    "task-frontend-003",
-    "task-auth-001",
-    "help",
-    "How should I handle authentication tokens in the frontend?",
+    project_id="ecommerce-v2",
+    from_session="task-frontend-003",
+    to_session="task-auth-001",
+    query_type="help",
+    query="How should I handle authentication tokens in the frontend?",
+    wait_for_response=True,
     timeout=60  # Give more time for complex questions
 )
 ```
@@ -381,40 +369,53 @@ Checks for any messages sent to this agent. Clears the queue after reading.
 
 **Returns:**
 ```json
-[
-  {
-    "id": "msg-123",
-    "from": "task-profile-002",
-    "type": "query",
-    "query_type": "interface",
-    "content": "What fields does the User interface have?",
-    "timestamp": "2024-01-15T10:30:00Z",
-    "requires_response": true
-  },
-  {
-    "from": "task-frontend-003",
-    "type": "broadcast",
-    "message_type": "info",
-    "content": "Starting work on the login UI",
-    "timestamp": "2024-01-15T10:35:00Z"
+{
+  "status": "success",
+  "message": "Retrieved 2 messages",
+  "data": {
+    "messages": [
+      {
+        "id": "query_1711638123456",
+        "from": "task-profile-002",
+        "to": "task-auth-001",
+        "type": "query",
+        "query_type": "interface",
+        "content": "What fields does the User interface have?",
+        "query": "What fields does the User interface have?",
+        "requires_response": true,
+        "timestamp": "2024-01-15T10:30:00Z"
+      },
+      {
+        "id": "response_query_1711638123456",
+        "from": "task-auth-001",
+        "to": "task-profile-002",
+        "type": "response",
+        "response": "User has: id, email, password, role, createdAt",
+        "content": "User has: id, email, password, role, createdAt",
+        "query_id": "query_1711638123456",
+        "in_response_to": "query_1711638123456",
+        "timestamp": "2024-01-15T10:31:00Z"
+      }
+    ]
   }
-]
+}
 ```
 
 **Example:**
 ```python
 # Check messages periodically
-messages = check_messages("ecommerce-v2", "task-auth-001")
+result = check_messages("ecommerce-v2", "task-auth-001")
+messages = result["data"]["messages"]
 for msg in messages:
     if msg['type'] == 'query' and msg.get('requires_response'):
         # Respond to the query
         if 'User interface' in msg['content']:
             respond_to_query(
-                "ecommerce-v2",
-                "task-auth-001",
-                msg['from'],
-                msg['id'],
-                "User has: id (string), email (string), password (hashed), role (string), createdAt (Date)"
+                project_id="ecommerce-v2",
+                from_session="task-auth-001",
+                to_session=msg['from'],
+                message_id=msg['id'],
+                response="User has: id (string), email (string), password (hashed), role (string), createdAt (Date)"
             )
 ```
 
@@ -427,15 +428,23 @@ Responds to a query from another agent.
 **Parameters:**
 - `project_id` (str): Project identifier
 - `from_session` (str): Your session name
-- `to_session` (str): Session that sent the query
+- `session_name` (str): Legacy alias for `from_session`
+- `to_session` (str): Session that sent the query. Optional when it can be inferred from the stored query record.
 - `message_id` (str): ID of the original query
+- `query_id` (str): Legacy alias for `message_id`
 - `response` (str): Your response
 
 **Returns:**
 ```json
 {
-  "status": "response_sent",
-  "to": "task-profile-002"
+  "status": "success",
+  "message": "Response sent",
+  "data": {
+    "status": "response_sent",
+    "response_id": "response_query_1711638123456",
+    "to": "task-profile-002",
+    "query_id": "query_1711638123456"
+  }
 }
 ```
 
@@ -443,40 +452,9 @@ Responds to a query from another agent.
 
 #### `broadcast_message`
 
-Sends a message to all other agents in the project.
+`broadcast_message` appears in older design examples, but it is **not exposed by the current Redis MCP server** in `mcp-server-redis.py`.
 
-**Parameters:**
-- `project_id` (str): Project identifier
-- `session_name` (str): Your session name
-- `message_type` (str): Type of broadcast ("info", "warning", "help_needed")
-- `content` (str): The message content
-
-**Returns:**
-```json
-{
-  "status": "broadcast_sent",
-  "recipients": 3
-}
-```
-
-**Example:**
-```python
-# Announce important changes
-broadcast_message(
-    "ecommerce-v2",
-    "task-auth-001",
-    "warning",
-    "I'm refactoring the User model to add roles. This may affect your interfaces!"
-)
-
-# Ask for help from anyone
-broadcast_message(
-    "ecommerce-v2",
-    "task-frontend-003",
-    "help_needed",
-    "Does anyone know the best practice for storing JWT tokens in React?"
-)
-```
+If you are documenting or using the raw MCP toolset, treat this as unavailable unless the server implementation adds it. Use directed `query_agent(...)` calls instead.
 
 ### File Coordination
 
@@ -488,30 +466,29 @@ Announces intention to modify a file. Prevents conflicts by locking the file.
 - `project_id` (str): Project identifier
 - `session_name` (str): Agent's session name
 - `file_path` (str): Path to the file
-- `change_type` (str): Type of change ("create", "modify", "delete", "refactor")
-- `description` (str): What you're planning to do
+- `operation` (str): Type of change ("create", "modify", "delete")
 
 **Returns (success):**
 ```json
 {
-  "status": "locked",
-  "file_path": "src/models/user.ts",
-  "message": "File locked successfully. Remember to release when done."
+  "status": "success",
+  "message": "File src/models/user.ts locked for create",
+  "data": {}
 }
 ```
 
 **Returns (conflict):**
 ```json
 {
-  "status": "conflict",
-  "error": "File is locked by task-profile-002",
-  "lock_info": {
-    "session": "task-profile-002",
-    "locked_at": "2024-01-15T10:30:00Z",
-    "change_type": "modify",
-    "description": "Adding profile fields to User model"
+  "status": "error",
+  "message": "File is locked by task-profile-002",
+  "data": {
+    "lock_info": {
+      "session": "task-profile-002",
+      "operation": "modify",
+      "locked_at": "2024-01-15T10:30:00Z"
+    }
   },
-  "suggestion": "Query that agent about their progress or wait"
 }
 ```
 
@@ -522,20 +499,20 @@ result = announce_file_change(
     "ecommerce-v2",
     "task-auth-001",
     "src/models/user.ts",
-    "create",
-    "Creating User model with authentication fields"
+    "create"
 )
 
-if result['status'] == 'conflict':
+if result['status'] == 'error':
     # File is locked by another agent
-    other_agent = result['lock_info']['session']
+    other_agent = result['data']['lock_info']['session']
     # Query them about timeline
     response = query_agent(
-        "ecommerce-v2",
-        "task-auth-001",
-        other_agent,
-        "status",
-        f"When will you be done with {file_path}? I need to add auth fields."
+        project_id="ecommerce-v2",
+        from_session="task-auth-001",
+        to_session=other_agent,
+        query_type="status",
+        query=f"When will you be done with src/models/user.ts? I need to add auth fields.",
+        wait_for_response=True
     )
 else:
     # File is locked, safe to modify
@@ -571,34 +548,39 @@ Gets recent file changes across all agents in the project.
 
 **Parameters:**
 - `project_id` (str): Project identifier
-- `limit` (int): Maximum number of changes to return (default: 20)
+- `minutes` (int): Look back window in minutes (default: 30)
 
 **Returns:**
 ```json
-[
-  {
-    "session": "task-auth-001",
-    "file_path": "src/models/user.ts",
-    "change_type": "create",
-    "description": "Created User model with auth fields",
-    "timestamp": "2024-01-15T10:45:00Z"
-  },
-  {
-    "session": "task-api-003",
-    "file_path": "src/routes/auth.ts",
-    "change_type": "create",
-    "description": "Added login and register endpoints",
-    "timestamp": "2024-01-15T10:40:00Z"
+{
+  "status": "success",
+  "message": "Found 2 changes in last 30 minutes",
+  "data": {
+    "changes": [
+      {
+        "session": "task-auth-001",
+        "file_path": "src/models/user.ts",
+        "operation": "create",
+        "timestamp": "2024-01-15T10:45:00Z"
+      },
+      {
+        "session": "task-api-003",
+        "file_path": "src/routes/auth.ts",
+        "operation": "create",
+        "timestamp": "2024-01-15T10:40:00Z"
+      }
+    ]
   }
-]
+}
 ```
 
 **Example:**
 ```python
 # Check what files were recently modified
-changes = get_recent_changes("ecommerce-v2", limit=10)
+result = get_recent_changes("ecommerce-v2", minutes=10)
+changes = result["data"]["changes"]
 for change in changes:
-    print(f"{change['session']} {change['change_type']}d {change['file_path']}")
+    print(f"{change['session']} {change['operation']} {change['file_path']}")
 ```
 
 ### Shared Definitions
@@ -774,11 +756,10 @@ result = announce_file_change(
     project_id, 
     session_name,
     "src/models/user.ts",
-    "create",
-    "Creating User model with authentication fields"
+    "create"
 )
 
-if result['status'] == 'locked':
+if result['status'] == 'success':
     # Create the file...
     # Then register the interface
     register_interface(
@@ -803,13 +784,7 @@ if result['status'] == 'locked':
     # Update todo
     update_todo(project_id, session_name, todo_ids[1], "completed")
     
-    # Broadcast completion
-    broadcast_message(
-        project_id,
-        session_name,
-        "info",
-        "User model is ready! Interface 'User' is now available."
-    )
+    # Notify specific agents with query_agent(...) if they need this update.
 
 # 6. Periodically check messages and send heartbeat
 import time
@@ -818,16 +793,17 @@ while working:
     heartbeat(project_id, session_name)
     
     # Check messages
-    messages = check_messages(project_id, session_name)
+    result = check_messages(project_id, session_name)
+    messages = result["data"]["messages"]
     for msg in messages:
         if msg['type'] == 'query':
             if 'User' in msg['content']:
                 respond_to_query(
-                    project_id,
-                    session_name,
-                    msg['from'],
-                    msg['id'],
-                    "User interface has: id, email, password (hashed), role, emailVerified, timestamps"
+                    project_id=project_id,
+                    from_session=session_name,
+                    to_session=msg['from'],
+                    message_id=msg['id'],
+                    response="User interface has: id, email, password (hashed), role, emailVerified, timestamps"
                 )
     
     time.sleep(30)
@@ -847,28 +823,22 @@ session_name = "task-frontend-003"
 register_agent(project_id, session_name, "003", "feature/login-ui", "Build login interface")
 
 # 2. Check what backend agents are doing
-all_todos = get_all_todos(project_id)
+agents_result = list_active_agents(project_id)
 auth_agent = None
 
-for agent, info in all_todos.items():
-    if 'auth' in info['description'].lower():
-        auth_agent = agent
-        # Check if login endpoint is ready
-        for todo in info['todos']:
-            if 'login endpoint' in todo['text']:
-                if todo['status'] == 'completed':
-                    print("Great! Login endpoint is ready")
-                else:
-                    print(f"Login endpoint status: {todo['status']}")
+for agent in agents_result["data"]["agents"]:
+    if 'auth' in agent['description'].lower():
+        auth_agent = agent['session_name']
 
 # 3. Query for API details
 if auth_agent:
     response = query_agent(
-        project_id,
-        session_name,
-        auth_agent,
-        "api",
-        "What's the login endpoint URL and what data does it expect?"
+        project_id=project_id,
+        from_session=session_name,
+        to_session=auth_agent,
+        query_type="api",
+        query="What's the login endpoint URL and what data does it expect?",
+        wait_for_response=True
     )
     print(f"Login API details: {response}")
 
@@ -878,11 +848,12 @@ if user_interface.get('status') != 'not_found':
     print(f"User interface available: {user_interface['definition']}")
 else:
     # Wait or ask for it
-    broadcast_message(
-        project_id,
-        session_name,
-        "help_needed",
-        "I need the User interface to build the login form. Has anyone created it?"
+    query_agent(
+        project_id=project_id,
+        from_session=session_name,
+        to_session="task-auth-001",
+        query_type="interface",
+        query="I need the User interface to build the login form. Has anyone created it?"
     )
 
 # 5. Work on login component
@@ -890,11 +861,10 @@ result = announce_file_change(
     project_id,
     session_name,
     "src/components/LoginForm.tsx",
-    "create",
-    "Creating login form component"
+    "create"
 )
 
-if result['status'] == 'locked':
+if result['status'] == 'success':
     # Build the component using the User interface
     # ...
     release_file_lock(project_id, session_name, "src/components/LoginForm.tsx")
@@ -915,35 +885,37 @@ interfaces = list_interfaces(project_id)
 print(f"Available interfaces: {list(interfaces.keys())}")
 
 # 3. See what everyone is working on
-all_todos = get_all_todos(project_id)
+agents_result = list_active_agents(project_id)
 
 # Find agents working on related features
 auth_agent = None
 db_agent = None
 
-for agent, info in all_todos.items():
-    if 'auth' in info['description'].lower():
-        auth_agent = agent
-    elif 'database' in info['description'].lower():
-        db_agent = agent
+for agent in agents_result["data"]["agents"]:
+    if 'auth' in agent['description'].lower():
+        auth_agent = agent['session_name']
+    elif 'database' in agent['description'].lower():
+        db_agent = agent['session_name']
 
 # 4. Query multiple agents
 if auth_agent:
     auth_response = query_agent(
-        project_id,
-        session_name,
-        auth_agent,
-        "interface",
-        "What auth middleware should I use for protecting user endpoints?"
+        project_id=project_id,
+        from_session=session_name,
+        to_session=auth_agent,
+        query_type="interface",
+        query="What auth middleware should I use for protecting user endpoints?",
+        wait_for_response=True
     )
 
 if db_agent:
     db_response = query_agent(
-        project_id,
-        session_name,
-        db_agent,
-        "help",
-        "What's the database connection pattern we're using?"
+        project_id=project_id,
+        from_session=session_name,
+        to_session=db_agent,
+        query_type="help",
+        query="What's the database connection pattern we're using?",
+        wait_for_response=True
     )
 
 # 5. Register API contracts for others to use
@@ -969,23 +941,23 @@ for file_path in shared_files:
         project_id,
         session_name,
         file_path,
-        "modify",
-        "Adding user routes to main app"
+        "modify"
     )
     
-    if result['status'] == 'conflict':
+    if result['status'] == 'error':
         # Someone else is working on it
-        lock_info = result['lock_info']
+        lock_info = result['data']['lock_info']
         print(f"{file_path} is locked by {lock_info['session']}")
         print(f"They are: {lock_info['description']}")
         
         # Query them about timeline
         response = query_agent(
-            project_id,
-            session_name,
-            lock_info['session'],
-            "status",
-            f"When will you be done with {file_path}? I need to add user routes."
+            project_id=project_id,
+            from_session=session_name,
+            to_session=lock_info['session'],
+            query_type="status",
+            query=f"When will you be done with {file_path}? I need to add user routes.",
+            wait_for_response=True
         )
 ```
 
@@ -1039,16 +1011,16 @@ def safe_query_interface(project_id, interface_name):
     
     return result
 
-def safe_file_change(project_id, session_name, file_path, change_type, description, max_retries=3):
+def safe_file_change(project_id, session_name, file_path, operation, max_retries=3):
     """Try to lock a file with retries"""
     for attempt in range(max_retries):
-        result = announce_file_change(project_id, session_name, file_path, change_type, description)
+        result = announce_file_change(project_id, session_name, file_path, operation)
         
-        if result['status'] == 'locked':
+        if result['status'] == 'success':
             return True
         
-        if result['status'] == 'conflict':
-            print(f"Attempt {attempt + 1}: File locked by {result['lock_info']['session']}")
+        if result['status'] == 'error':
+            print(f"Attempt {attempt + 1}: File locked by {result['data']['lock_info']['session']}")
             if attempt < max_retries - 1:
                 time.sleep(10)  # Wait 10 seconds before retry
             else:
@@ -1086,7 +1058,8 @@ add_todo(project_id, session_name, "Do authentication", 1)
 ### 4. Check Messages Regularly
 ```python
 # Check every 30-60 seconds
-messages = check_messages(project_id, session_name)
+result = check_messages(project_id, session_name)
+messages = result["data"]["messages"]
 for msg in messages:
     # Process each message appropriately
     handle_message(msg)
@@ -1095,8 +1068,8 @@ for msg in messages:
 ### 5. Always Release Locks
 ```python
 try:
-    result = announce_file_change(project_id, session_name, file_path, "modify", "Updating")
-    if result['status'] == 'locked':
+    result = announce_file_change(project_id, session_name, file_path, "modify")
+    if result['status'] == 'success':
         # Do your work
         modify_file(file_path)
 finally:
@@ -1110,17 +1083,25 @@ finally:
 user_interface = query_interface(project_id, "User")
 if user_interface.get('status') == 'not_found':
     # Handle missing interface
-    query_agent(project_id, session_name, "task-auth-001", "interface", "Is the User interface ready?")
+    query_agent(
+        project_id=project_id,
+        from_session=session_name,
+        to_session="task-auth-001",
+        query_type="interface",
+        query="Is the User interface ready?"
+    )
 ```
 
-### 7. Broadcast Important Changes
+### 7. Share Important Changes Deliberately
 ```python
-# Let everyone know about breaking changes
-broadcast_message(
-    project_id,
-    session_name,
-    "warning",
-    "Changing User.id from number to string UUID. Update your code!"
+# The Redis MCP server does not currently expose broadcast_message.
+# Notify the specific sessions that need to know.
+query_agent(
+    project_id=project_id,
+    from_session=session_name,
+    to_session="task-auth-001",
+    query_type="status",
+    query="Heads up: User.id is changing from number to string UUID. Please update your code."
 )
 ```
 

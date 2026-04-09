@@ -172,7 +172,8 @@ register_agent(...)
 try:
     while working:
         heartbeat(...)
-        messages = check_messages(...)
+        result = check_messages(...)
+        messages = result["data"]["messages"]
         # Handle each message type...
 finally:
     unregister_agent(...)

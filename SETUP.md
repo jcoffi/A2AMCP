@@ -73,6 +73,13 @@ The server implements **16+ A2AMCP API tools** using modern MCP SDK patterns:
 - **check_messages** - Check and retrieve messages
 - **respond_to_query** - Respond to a specific query
 
+Note: some docs and SDK helpers mention `broadcast_message` and `get_all_todos`,
+but those are not currently exposed by the Redis MCP server in this repository.
+
+Communication tools use the standard MCP wrapper response format:
+`{"status": str, "message": str, "data": {...}}`.
+For `check_messages`, the message list is returned in `data.messages`.
+
 ### File Coordination
 - **announce_file_change** - Lock a file before editing
 - **release_file_lock** - Release file lock after editing

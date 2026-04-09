@@ -125,9 +125,9 @@ list_active_agents("ecommerce-v2")
 }
 
 # Check what they're doing
-get_all_todos("ecommerce-v2")
+list_active_agents("ecommerce-v2")
 
-# Returns everyone's todo lists and progress
+# Then inspect a specific session with get_my_todos(project_id, session_name)
 ```
 
 ### 7. **Inter-Agent Communication**
@@ -136,27 +136,32 @@ get_all_todos("ecommerce-v2")
 ```python
 # Agent 2 needs information from Agent 1
 query_agent(
-    "ecommerce-v2", 
-    "task-002",      # from
-    "task-001",      # to
-    "interface",     # query type
-    "What's the User interface structure?"
+    project_id="ecommerce-v2",
+    from_session="task-002",
+    to_session="task-001",
+    query_type="interface",
+    query="What's the User interface structure?",
+    wait_for_response=True
 )
 ```
 
 **Flow**:
 1. Message stored in Redis: `project:ecommerce-v2:messages:task-001`
-2. Agent 1 checks messages periodically
-3. Agent 1 responds
-4. Response delivered back to Agent 2
+2. Agent 1 calls `check_messages(...)` and reads `result["data"]["messages"]`
+3. Agent 1 responds with `respond_to_query(...)` using the original `message_id`
+4. The tool returns the MCP wrapper `{status, message, data}` and the response is delivered back to Agent 2 as both a queued response message and, when waiting, a `query_agent(..., wait_for_response=True)` result with `data.status == "received"`
 
 #### Broadcast:
 ```python
-broadcast_message(
-    "ecommerce-v2",
-    "task-001",
-    "info",
-    "Starting major refactor of auth system"
+# Historical note: some architecture docs mention broadcast_message,
+# but the current Redis MCP server does not expose that tool.
+# Use directed query_agent(...) calls for coordination instead.
+query_agent(
+    project_id="ecommerce-v2",
+    from_session="task-001",
+    to_session="task-002",
+    query_type="status",
+    query="Heads up: starting a major refactor of auth system"
 )
 ```
 
@@ -170,8 +175,7 @@ announce_file_change(
     "ecommerce-v2",
     "task-001",
     "src/models/user.ts",
-    "create",
-    "Creating User model"
+    "create"
 )
 ```
 
@@ -179,7 +183,7 @@ announce_file_change(
 1. Server checks Redis: `project:ecommerce-v2:locks`
 2. If no lock exists, creates one
 3. If locked by another agent, returns conflict
-4. Broadcasts lock notification to others
+4. Returns the standard MCP wrapper `{status, message, data}` to the caller
 
 ### 9. **Shared Definitions**
 
