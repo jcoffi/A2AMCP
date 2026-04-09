@@ -203,7 +203,17 @@ async def run_agent():
 register_agent("my-project", "task-001", "001", "feature/auth", "Building authentication")
 
 # Query another agent
-query_agent("my-project", "task-001", "task-002", "interface", "What's the User schema?")
+query_agent(
+    project_id="my-project",
+    from_session="task-001",
+    to_session="task-002",
+    query_type="interface",
+    query="What's the User schema?"
+)
+
+# Raw MCP responses use the wrapper: {"status", "message", "data"}
+# Some higher-level SDK helpers reference tools like `broadcast_message`
+# and `get_all_todos`, but those are not exposed by the current Redis MCP server.
 
 # Share interface
 register_interface("my-project", "task-001", "User", "interface User {...}")

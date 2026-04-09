@@ -61,7 +61,13 @@ crew = Crew(
 # Agents already exist (Claude Code in tmux)
 # A2AMCP helps them communicate
 register_agent("project-1", "task-001", "001", "feature/auth", "Building auth")
-query_agent("project-1", "task-001", "task-002", "interface", "What's the User schema?")
+query_agent(
+    project_id="project-1",
+    from_session="task-001",
+    to_session="task-002",
+    query_type="interface",
+    query="What's the User schema?"
+)
 ```
 
 ### 2. **Where Agents Run**
@@ -91,7 +97,13 @@ writer.receive_context(result)
 **A2AMCP:**
 ```python
 # Network-based communication through MCP tools
-query_agent(project_id, from_session, to_session, query_type, question)
+query_agent(
+    project_id=project_id,
+    from_session=from_session,
+    to_session=to_session,
+    query_type=query_type,
+    query=question
+)
 # Message goes through Redis, persistent and observable
 ```
 

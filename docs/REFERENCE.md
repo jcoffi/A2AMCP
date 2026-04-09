@@ -249,30 +249,13 @@ Gets agent's own todos.
 
 ### `get_all_todos`
 
-Gets todos for all agents in the project.
+`get_all_todos` is referenced by higher-level SDK/planning material, but it is **not currently exposed by the Redis MCP server** in `mcp-server-redis.py`.
 
-**Parameters:**
-- `project_id` (str): Project identifier
+For raw MCP callers using the current Redis server:
+- use `list_active_agents(project_id)` to discover sessions
+- use `get_my_todos(project_id, session_name)` per session to inspect work in progress
 
-**Returns:**
-```json
-{
-  "task-001": {
-    "task_id": "001",
-    "description": "Implement authentication",
-    "total_todos": 5,
-    "completed": 3,
-    "todos": [...]
-  },
-  "task-002": {
-    "task_id": "002",
-    "description": "Create user profiles",
-    "total_todos": 4,
-    "completed": 1,
-    "todos": [...]
-  }
-}
-```
+If a future server implementation exposes `get_all_todos`, document its wrapper shape explicitly as `{status, message, data}`.
 
 ## Communication
 
@@ -283,27 +266,39 @@ Sends a query to another agent.
 **Parameters:**
 - `project_id` (str): Project identifier
 - `from_session` (str): Sender's session name
+- `session_name` (str): Legacy alias for `from_session`
 - `to_session` (str): Target agent's session name
-- `query_type` (str): Type of query (`interface`, `api`, `help`, `status`)
+- `target_session` (str): Legacy alias for `to_session`
+- `query_type` (str): Type of query (`interface`, `api`, `help`, `status`, or custom values). Defaults to `query`
 - `query` (str): The question
-- `wait_for_response` (bool): Whether to wait (default: true)
+- `wait_for_response` (bool): Whether to wait for a reply before returning (default: false)
 - `timeout` (int): Seconds to wait (default: 30)
 
-**Returns (if waiting):**
+**Returns:**
 ```json
 {
-  "status": "received",
-  "response": "The User interface has id, email, password, and role fields"
+  "status": "success",
+  "message": "Response received from task-auth-001",
+  "data": {
+    "status": "received",
+    "query_id": "query_1711638123456",
+    "response": "The User interface has id, email, password, and role fields",
+    "response_data": {
+      "id": "response_query_1711638123456",
+      "from": "task-auth-001",
+      "to": "task-profile-002",
+      "type": "response",
+      "response": "The User interface has id, email, password, and role fields",
+      "content": "The User interface has id, email, password, and role fields",
+      "query_id": "query_1711638123456",
+      "in_response_to": "query_1711638123456",
+      "timestamp": "2024-01-15T10:31:00Z"
+    }
+  }
 }
 ```
 
-**Returns (if not waiting):**
-```json
-{
-  "status": "sent",
-  "message_id": "task-001-1705320600.789"
-}
-```
+When `wait_for_response` is `false`, the wrapper still uses top-level `status/message/data`, and `data.status` is `sent` with the generated `query_id`.
 
 ---
 
@@ -317,17 +312,36 @@ Checks for incoming messages. Clears queue after reading.
 
 **Returns:**
 ```json
-[
-  {
-    "id": "msg-123",
-    "from": "task-002",
-    "type": "query",
-    "query_type": "interface",
-    "content": "What fields does the User interface have?",
-    "timestamp": "2024-01-15T10:30:00Z",
-    "requires_response": true
+{
+  "status": "success",
+  "message": "Retrieved 2 messages",
+  "data": {
+    "messages": [
+      {
+        "id": "query_1711638123456",
+        "from": "task-profile-002",
+        "to": "task-auth-001",
+        "type": "query",
+        "query_type": "interface",
+        "content": "What fields does the User interface have?",
+        "query": "What fields does the User interface have?",
+        "requires_response": true,
+        "timestamp": "2024-01-15T10:30:00Z"
+      },
+      {
+        "id": "response_query_1711638123456",
+        "from": "task-auth-001",
+        "to": "task-profile-002",
+        "type": "response",
+        "response": "User has id, email, password, role, createdAt",
+        "content": "User has id, email, password, role, createdAt",
+        "query_id": "query_1711638123456",
+        "in_response_to": "query_1711638123456",
+        "timestamp": "2024-01-15T10:31:00Z"
+      }
+    ]
   }
-]
+}
 ```
 
 ---
@@ -339,15 +353,23 @@ Responds to a query from another agent.
 **Parameters:**
 - `project_id` (str): Project identifier
 - `from_session` (str): Responder's session name
-- `to_session` (str): Original sender's session name
-- `message_id` (str): Original message ID
+- `session_name` (str): Legacy alias for `from_session`
+- `to_session` (str): Original sender's session name. Optional when it can be inferred from the stored query record.
+- `message_id` (str): Original query ID
+- `query_id` (str): Legacy alias for `message_id`
 - `response` (str): Response content
 
 **Returns:**
 ```json
 {
-  "status": "response_sent",
-  "to": "task-002"
+  "status": "success",
+  "message": "Response sent",
+  "data": {
+    "status": "response_sent",
+    "response_id": "response_query_1711638123456",
+    "to": "task-profile-002",
+    "query_id": "query_1711638123456"
+  }
 }
 ```
 
@@ -355,21 +377,10 @@ Responds to a query from another agent.
 
 ### `broadcast_message`
 
-Sends a message to all other agents.
+`broadcast_message` is referenced in historical examples, but it is **not currently exposed by the Redis MCP server** in `mcp-server-redis.py`.
 
-**Parameters:**
-- `project_id` (str): Project identifier
-- `session_name` (str): Sender's session name
-- `message_type` (str): Type (`info`, `warning`, `help_needed`)
-- `content` (str): Message content
-
-**Returns:**
-```json
-{
-  "status": "broadcast_sent",
-  "recipients": 3
-}
-```
+If you are a raw MCP caller, do not rely on this tool unless the server implementation adds it.
+Use `query_agent` for directed coordination instead.
 
 ## File Coordination
 
@@ -381,30 +392,29 @@ Announces intention to modify a file. Locks the file.
 - `project_id` (str): Project identifier
 - `session_name` (str): Agent's session name
 - `file_path` (str): Path to file
-- `change_type` (str): Type (`create`, `modify`, `delete`, `refactor`)
-- `description` (str): Description of changes
+- `operation` (str): Type (`create`, `modify`, `delete`)
 
 **Returns (success):**
 ```json
 {
-  "status": "locked",
-  "file_path": "src/models/user.ts",
-  "message": "File locked successfully. Remember to release when done."
+  "status": "success",
+  "message": "File src/models/user.ts locked for modify",
+  "data": {}
 }
 ```
 
 **Returns (conflict):**
 ```json
 {
-  "status": "conflict",
-  "error": "File is locked by task-002",
-  "lock_info": {
-    "session": "task-002",
-    "locked_at": "2024-01-15T10:30:00Z",
-    "change_type": "modify",
-    "description": "Adding profile fields"
+  "status": "error",
+  "message": "File is locked by task-002",
+  "data": {
+    "lock_info": {
+      "session": "task-002",
+      "operation": "modify",
+      "locked_at": "2024-01-15T10:30:00Z"
+    }
   },
-  "suggestion": "Query that agent about their progress or wait"
 }
 ```
 
@@ -422,8 +432,9 @@ Releases a file lock.
 **Returns:**
 ```json
 {
-  "status": "released",
-  "file_path": "src/models/user.ts"
+  "status": "success",
+  "message": "File src/models/user.ts lock released",
+  "data": {}
 }
 ```
 
@@ -435,19 +446,24 @@ Gets recent file changes across all agents.
 
 **Parameters:**
 - `project_id` (str): Project identifier
-- `limit` (int): Maximum changes to return (default: 20)
+- `minutes` (int): Look back window in minutes (default: 30)
 
 **Returns:**
 ```json
-[
-  {
-    "session": "task-001",
-    "file_path": "src/models/user.ts",
-    "change_type": "create",
-    "description": "Created User model with auth fields",
-    "timestamp": "2024-01-15T10:45:00Z"
+{
+  "status": "success",
+  "message": "Found 1 changes in last 30 minutes",
+  "data": {
+    "changes": [
+      {
+        "session": "task-001",
+        "file_path": "src/models/user.ts",
+        "operation": "create",
+        "timestamp": "2024-01-15T10:45:00Z"
+      }
+    ]
   }
-]
+}
 ```
 
 ## Shared Definitions
@@ -572,8 +588,8 @@ retry_delay = 5  # seconds
 
 for attempt in range(max_retries):
     try:
-        result = announce_file_change(...)
-        if result['status'] == 'locked':
+        result = announce_file_change(project_id, session_name, file_path, "modify")
+        if result['status'] == 'success':
             break
     except Exception as e:
         if attempt < max_retries - 1:
