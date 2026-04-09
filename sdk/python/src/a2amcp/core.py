@@ -5,7 +5,6 @@ Provides high-level abstractions for A2AMCP communication.
 """
 
 import asyncio
-import builtins
 import json
 import logging
 import os
@@ -28,6 +27,7 @@ class TodoStatus(Enum):
     IN_PROGRESS = "in_progress"
     COMPLETED = "completed"
     BLOCKED = "blocked"
+    CANCELLED = "cancelled"
 
 
 class MessageType(Enum):
@@ -73,13 +73,21 @@ class Todo:
     created_at: str
     completed_at: Optional[str] = None
 
+    @staticmethod
+    def _parse_priority(value: Any) -> int:
+        if isinstance(value, int):
+            return value
+
+        priority_map = {"high": 1, "medium": 2, "low": 3}
+        return priority_map.get(str(value).lower(), 2)
+
     @classmethod
     def from_dict(cls, data: dict) -> "Todo":
         return cls(
             id=data["id"],
-            text=data["text"],
+            text=data.get("text") or data.get("task", ""),
             status=TodoStatus(data["status"]),
-            priority=data["priority"],
+            priority=cls._parse_priority(data.get("priority", 2)),
             created_at=data["created_at"],
             completed_at=data.get("completed_at"),
         )
@@ -112,16 +120,10 @@ class Interface:
     timestamp: str
 
 
-if hasattr(builtins, "_A2AMCPError"):
-    A2AMCPError = builtins._A2AMCPError
-else:
+class A2AMCPError(Exception):
+    """Base exception for A2AMCP SDK"""
 
-    class A2AMCPError(Exception):
-        """Base exception for A2AMCP SDK"""
-
-        pass
-
-    builtins._A2AMCPError = A2AMCPError
+    pass
 
 
 class ConnectionError(A2AMCPError):
@@ -258,10 +260,10 @@ class Project:
 
         return agents
 
-    async def get_recent_changes(self, limit: int = 20) -> List[dict]:
+    async def get_recent_changes(self, minutes: int = 20) -> List[dict]:
         """Get recent file changes in the project"""
         response = await self.client.call_tool(
-            "get_recent_changes", project_id=self.project_id, minutes=limit
+            "get_recent_changes", project_id=self.project_id, minutes=minutes
         )
         AgentCommunication._raise_for_tool_error(response)
         payload = AgentCommunication._payload(response)
@@ -342,7 +344,7 @@ class InterfaceManager:
         file_path: Optional[str] = None,
     ) -> None:
         """Register a new interface"""
-        await self.project.client.call_tool(
+        response = await self.project.client.call_tool(
             "register_interface",
             project_id=self.project.project_id,
             session_name=session_name,
@@ -350,6 +352,7 @@ class InterfaceManager:
             definition=definition,
             description=file_path or "",
         )
+        AgentCommunication._raise_for_tool_error(response)
 
     async def get(self, name: str) -> Optional[Interface]:
         """Get an interface by name"""
@@ -369,7 +372,7 @@ class InterfaceManager:
             name=name,
             definition=interface["definition"],
             registered_by=interface["registered_by"],
-            file_path=interface.get("file_path"),
+            file_path=interface.get("file_path") or interface.get("description"),
             timestamp=interface["timestamp"],
         )
 
@@ -387,7 +390,7 @@ class InterfaceManager:
                 name=name,
                 definition=data["definition"],
                 registered_by=data["registered_by"],
-                file_path=data.get("file_path"),
+                file_path=data.get("file_path") or data.get("description"),
                 timestamp=data["timestamp"],
             )
 
@@ -602,29 +605,40 @@ class AgentTodoManager:
     def __init__(self, agent: Agent):
         self.agent = agent
 
+    @staticmethod
+    def _encode_priority(value: int) -> str:
+        if value <= 1:
+            return "high"
+        if value == 2:
+            return "medium"
+        return "low"
+
     async def add(self, text: str, priority: int = 1) -> str:
         """Add a new todo"""
         response = await self.agent.project.client.call_tool(
             "add_todo",
             project_id=self.agent.project.project_id,
             session_name=self.agent.session_name,
-            todo_item=text,
-            priority=priority,
+            task=text,
+            priority=self._encode_priority(priority),
         )
-        return response["todo_id"]
+        AgentCommunication._raise_for_tool_error(response)
+        payload = AgentCommunication._payload(response)
+        return payload["todo_id"]
 
     async def update(self, todo_id: str, status: Union[str, TodoStatus]) -> None:
         """Update todo status"""
         if isinstance(status, TodoStatus):
             status = status.value
 
-        await self.agent.project.client.call_tool(
+        response = await self.agent.project.client.call_tool(
             "update_todo",
             project_id=self.agent.project.project_id,
             session_name=self.agent.session_name,
             todo_id=todo_id,
             status=status,
         )
+        AgentCommunication._raise_for_tool_error(response)
 
     async def list(self) -> List[Todo]:
         """List agent's todos"""
@@ -688,7 +702,10 @@ class FileCoordinator:
                 return
 
             if response["status"] == "error":
-                lock_info = payload.get("lock_info", {})
+                lock_info = payload.get("lock_info")
+                if not isinstance(lock_info, dict):
+                    raise A2AMCPError(response.get("message", "A2AMCP tool error"))
+
                 conflict = FileConflict(
                     file_path=file_path,
                     locked_by=lock_info.get("session", "unknown"),

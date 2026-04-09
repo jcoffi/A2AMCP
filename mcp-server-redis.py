@@ -691,10 +691,16 @@ class AgentCommunicationServer:
                     session_name = arguments["session_name"]
 
                     messages_key = self._get_key(project_id, "messages", session_name)
-                    messages = await self.redis_client.lrange(messages_key, 0, -1)
+                    if hasattr(self.redis_client, "pipeline"):
+                        pipeline = self.redis_client.pipeline(transaction=True)
+                        pipeline.lrange(messages_key, 0, -1)
+                        pipeline.delete(messages_key)
+                        messages, _ = await pipeline.execute()
+                    else:
+                        messages = await self.redis_client.lrange(messages_key, 0, -1)
 
-                    # Clear the queue after reading
-                    await self.redis_client.delete(messages_key)
+                        # Fallback for test doubles without pipeline support.
+                        await self.redis_client.delete(messages_key)
 
                     message_list = []
                     for msg_str in messages:

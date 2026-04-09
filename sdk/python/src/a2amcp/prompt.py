@@ -102,7 +102,7 @@ class PromptBuilder:
                 "If registration fails, report the error and stop",
                 "If a file is locked, query the owner about timeline",
                 "If an interface is missing, ask who's creating it",
-                "If you get no response to a query, try broadcasting",
+                "If you get no response to a query, retry the directed query_agent request or inspect active agents and their todos",
                 "Always clean up (unregister) even if errors occur",
             ]
         )
@@ -257,7 +257,8 @@ class PromptBuilder:
         
         See everyone's progress:
         ```
-        get_all_todos("{self.project_id}")
+        list_active_agents("{self.project_id}")
+        # Then inspect a specific session with get_my_todos("{self.project_id}", "session-name")
         ```
         """).strip()
 
@@ -288,7 +289,7 @@ class PromptBuilder:
         {interface_list}
         
         For each interface:
-        1. Check if it exists: `query_interface("{self.project_id}", "InterfaceName")`
+        1. Check if it exists: `query_interface(project_id="{self.project_id}", name="InterfaceName")`
         2. If missing, query who's creating it
         3. Wait for it to be available before proceeding
         4. Use the exact definition provided
@@ -321,7 +322,7 @@ class PromptBuilder:
         
         Share any interfaces/types you create:
         ```
-        register_interface("{self.project_id}", "{session_name}", "InterfaceName", "interface definition", "Optional description")
+        register_interface(project_id="{self.project_id}", session_name="{session_name}", name="InterfaceName", definition="interface definition", description="Optional description")
         ```
         """).strip()
 

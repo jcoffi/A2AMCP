@@ -68,9 +68,14 @@ class FakeRedisClient:
 
 
 def _load_module(module_name: str, file_path: Path):
+    existing = sys.modules.get(module_name)
+    if existing is not None:
+        return existing
+
     spec = importlib.util.spec_from_file_location(module_name, file_path)
     module = importlib.util.module_from_spec(spec)
     assert spec.loader is not None
+    sys.modules[module_name] = module
     spec.loader.exec_module(module)
     return module
 
@@ -207,13 +212,11 @@ class DummyAgent:
         self.project = DummyProject(client)
 
 
-def _make_communication(response=None):
-    core = _load_module(
-        "test_a2amcp_core_module", ROOT / "sdk/python/src/a2amcp/core.py"
-    )
+def _make_communication(response=None, module_name: str = "test_a2amcp_core_module"):
+    core = _load_module(module_name, ROOT / "sdk/python/src/a2amcp/core.py")
     client = SpyClient(response=response)
     communication = core.AgentCommunication(DummyAgent(client))
-    return communication, client
+    return core, communication, client
 
 
 def test_query_agent_places_query_in_recipient_inbox(monkeypatch):
@@ -505,7 +508,7 @@ def test_file_coordinator_lock_uses_operation_and_wrapper_success_semantics():
 
 
 def test_sdk_query_returns_response_text_when_server_marks_query_received():
-    communication, _client = _make_communication(
+    _core, communication, _client = _make_communication(
         response={
             "status": "success",
             "data": {
@@ -532,11 +535,12 @@ def test_sdk_respond_raises_when_delivery_fails_instead_of_succeeding_silently()
     core = _load_module(
         "test_a2amcp_core_error_module", ROOT / "sdk/python/src/a2amcp/core.py"
     )
-    communication, _client = _make_communication(
+    _loaded_core, communication, _client = _make_communication(
         response={
             "status": "error",
             "message": "Could not determine response recipient for query-42",
-        }
+        },
+        module_name="test_a2amcp_core_error_module",
     )
 
     with pytest.raises(
@@ -552,7 +556,7 @@ def test_sdk_respond_raises_when_delivery_fails_instead_of_succeeding_silently()
 
 
 def test_sdk_check_messages_returns_message_list_from_tool_payload():
-    communication, _client = _make_communication(
+    _core, communication, _client = _make_communication(
         response={
             "status": "success",
             "message": "Retrieved 1 messages",
